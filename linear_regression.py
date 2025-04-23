@@ -1,3 +1,4 @@
+
 import pandas as pd
 import matplotlib.pyplot as plt
 from sklearn.linear_model import LinearRegression
@@ -11,6 +12,13 @@ df.columns = df.columns.str.strip()
 df['date'] = pd.to_datetime(df['date'])
 df = df.sort_values('date')
 
+# Additional engineered features
+df['Open_Close_Change'] = df['close'] - df['open']
+df['High_Low_Range'] = df['high'] - df['low']
+df['Volume_Change'] = df['volume'].pct_change(1)
+df['Volume_SMA_10'] = df['volume'].rolling(10).mean()
+df['Volume_Volatility'] = df['volume'].rolling(10).std()
+
 # Create lag features and target
 df['Lag_1'] = df['close'].shift(1)
 df['Lag_2'] = df['close'].shift(2)
@@ -23,7 +31,10 @@ df['Target'] = df['close'].shift(-1)
 df = df.dropna()
 
 # Define features and target
-X = df[['Lag_1', 'Lag_2', 'Lag_3', 'Lag_4', 'Lag_5']]
+feature_cols = ['Lag_1', 'Lag_2', 'Lag_3', 'Lag_4', 'Lag_5',
+                'Open_Close_Change', 'High_Low_Range', 
+                'Volume_Change', 'Volume_SMA_10', 'Volume_Volatility']
+X = df[feature_cols]
 y = df['Target']
 
 # Split the data (no shuffling for time series)
@@ -49,10 +60,10 @@ plt.figure(figsize=(14, 6))
 plt.plot(dates, y_test.values, label='Actual Price')
 plt.plot(dates, y_pred, label='Predicted Price')
 plt.legend()
-plt.title('KO Stock Price Prediction: Linear Regression')
+plt.title('KO Stock Price Prediction: Linear Regression with Raw Feature Boosting')
 plt.xlabel('Date')
 plt.ylabel('Price')
-plt.xticks(rotation=45)  # makes the dates easier to read
+plt.xticks(rotation=45)
 plt.tight_layout()
 plt.show()
 
