@@ -23,6 +23,13 @@ df['SMA_30'] = df['close'].rolling(30).mean()
 # Volatility
 df['Volatility'] = df['close'].rolling(10).std()
 
+# Additional features from raw columns
+df['Open_Close_Change'] = df['close'] - df['open']
+df['High_Low_Range'] = df['high'] - df['low']
+df['Volume_Change'] = df['volume'].pct_change(1)
+df['Volume_SMA_10'] = df['volume'].rolling(10).mean()
+df['Volume_Volatility'] = df['volume'].rolling(10).std()
+
 # Rate of change (returns)
 df['Return_1d'] = df['close'].pct_change(1)
 df['Return_5d'] = df['close'].pct_change(5)
@@ -38,7 +45,7 @@ df['Target'] = df['close'].shift(-5)
 df = df.dropna()
 
 # Feature selection
-feature_cols = [col for col in df.columns if col.startswith('Lag_') or 
+feature_cols = [col for col in df.columns if col in ['Open_Close_Change', 'High_Low_Range', 'Volume_Change', 'Volume_SMA_10', 'Volume_Volatility'] or col.startswith('Lag_') or 
                 'SMA' in col or 'Volatility' in col or 
                 'Return' in col or 'Momentum' in col]
 
@@ -104,4 +111,5 @@ plt.xticks(range(len(indices)), [feature_cols[i] for i in indices], rotation=45)
 plt.title("Gradient Boosting Feature Importances")
 plt.tight_layout()
 plt.show()
+
 
