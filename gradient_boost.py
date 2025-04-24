@@ -112,4 +112,61 @@ plt.title("Gradient Boosting Feature Importances")
 plt.tight_layout()
 plt.show()
 
+# ==========================
+# Future Data Prediction
+# ==========================
+
+# Load full CSV that includes future dates
+df_future = pd.read_csv('KO_1919-09-06_2025-04-17.csv')
+df_future.columns = df_future.columns.str.strip()
+df_future['date'] = pd.to_datetime(df_future['date'], utc=True)
+
+# Feature Engineering
+for lag in range(1, 31):
+    df_future[f'Lag_{lag}'] = df_future['close'].shift(lag)
+df_future['SMA_10'] = df_future['close'].rolling(10).mean()
+df_future['SMA_30'] = df_future['close'].rolling(30).mean()
+df_future['Volatility'] = df_future['close'].rolling(10).std()
+df_future['Open_Close_Change'] = df_future['close'] - df_future['open']
+df_future['High_Low_Range'] = df_future['high'] - df_future['low']
+df_future['Volume_Change'] = df_future['volume'].pct_change(1)
+df_future['Volume_SMA_10'] = df_future['volume'].rolling(10).mean()
+df_future['Volume_Volatility'] = df_future['volume'].rolling(10).std()
+df_future['Return_1d'] = df_future['close'].pct_change(1)
+df_future['Return_5d'] = df_future['close'].pct_change(5)
+df_future['Return_10d'] = df_future['close'].pct_change(10)
+df_future['Momentum_10'] = df_future['close'] - df_future['close'].shift(10)
+df_future['Target'] = df_future['close'].shift(-5)
+
+# Drop rows with NaNs
+df_future = df_future.dropna()
+
+# Only keep rows after 2025-03-15
+df_future = df_future[df_future['date'] > pd.Timestamp('2025-03-15', tz='UTC')]
+
+# Prepare feature matrix and target
+X_future = df_future[feature_cols]
+y_future = df_future['Target']
+X_future_scaled = scaler.transform(X_future)
+
+# Predict
+y_future_pred = gbr_model.predict(X_future_scaled)
+
+# Evaluation
+print("\nFuture Data Evaluation (After 2025-03-15):")
+print("MSE:", mean_squared_error(y_future, y_future_pred))
+print("MAE:", mean_absolute_error(y_future, y_future_pred))
+
+# Plot prediction vs actual
+plt.figure(figsize=(14, 6))
+plt.plot(df_future['date'], y_future.values, label='Actual Future Price', alpha=0.7)
+plt.plot(df_future['date'], y_future_pred, label='Predicted Future Price', alpha=0.7)
+plt.title('KO Stock Prediction: 2025-03-16 to 2025-04-17')
+plt.xlabel('Date')
+plt.ylabel('Price')
+plt.legend()
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
 
