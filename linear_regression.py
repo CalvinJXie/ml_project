@@ -9,7 +9,7 @@ from sklearn.model_selection import train_test_split
 df = pd.read_csv('KO_1919-09-06_2025-03-15.csv')
 print(df.columns)
 df.columns = df.columns.str.strip()
-df['date'] = pd.to_datetime(df['date'])
+df['date'] = pd.to_datetime(df['date'], utc = True)
 df = df.sort_values('date')
 
 # Additional engineered features
@@ -60,7 +60,7 @@ plt.figure(figsize=(14, 6))
 plt.plot(dates, y_test.values, label='Actual Price')
 plt.plot(dates, y_pred, label='Predicted Price')
 plt.legend()
-plt.title('KO Stock Price Prediction: Linear Regression with Raw Feature Boosting')
+plt.title('KO Stock Price Prediction: Linear Regression (2000–2025)')
 plt.xlabel('Date')
 plt.ylabel('Price')
 plt.xticks(rotation=45)
@@ -76,4 +76,48 @@ plt.ylabel('Error')
 plt.legend()
 plt.tight_layout()
 plt.show()
+
+# --- Load new data for out-of-sample testing (after 2025-03-15) ---
+new_df = pd.read_csv('KO_1919-09-06_2025-04-17.csv')
+new_df.columns = new_df.columns.str.strip()
+new_df['date'] = pd.to_datetime(new_df['date'], utc = True)
+new_df = new_df.sort_values('date')
+new_df = new_df[new_df['date'] > pd.Timestamp('2025-03-15', tz='UTC')]
+
+
+# Reapply feature engineering
+new_df['Open_Close_Change'] = new_df['close'] - new_df['open']
+new_df['High_Low_Range'] = new_df['high'] - new_df['low']
+new_df['Volume_Change'] = new_df['volume'].pct_change(1)
+new_df['Volume_SMA_10'] = new_df['volume'].rolling(10).mean()
+new_df['Volume_Volatility'] = new_df['volume'].rolling(10).std()
+new_df['Lag_1'] = new_df['close'].shift(1)
+new_df['Lag_2'] = new_df['close'].shift(2)
+new_df['Lag_3'] = new_df['close'].shift(3)
+new_df['Lag_4'] = new_df['close'].shift(4)
+new_df['Lag_5'] = new_df['close'].shift(5)
+new_df['Target'] = new_df['close'].shift(-1)
+
+new_df = new_df.dropna()
+
+# Features for prediction
+X_new = new_df[feature_cols]
+y_actual = new_df['Target']
+dates_new = new_df['date']
+
+# Predict using the trained model
+y_new_pred = model.predict(X_new)
+
+# --- Plot new prediction chart ---
+plt.figure(figsize=(14, 6))
+plt.plot(dates_new, y_actual, label='Actual Price')
+plt.plot(dates_new, y_new_pred, label='Predicted Price')
+plt.legend()
+plt.title('Out-of-Sample Prediction (2025-03-16 to 2025-04-17)')
+plt.xlabel('Date')
+plt.ylabel('Price')
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
 
