@@ -28,7 +28,7 @@ data = data.dropna()
 
 # Filter the data for training (2000-2007) and testing (2008-2010)
 train_data = data[(data['date'] >= '2000-01-01') & (data['date'] <= '2002-12-31')]
-test_data = data[(data['date'] >= '2003-01-01') & (data['date'] <= '2003-07-31')]
+test_data = data[(data['date'] >= '2024-01-01') & (data['date'] <= '2024-12-31')]
 
 # Define features (X) and target (y)
 features = ['lag_close_1', 'log_volume', 'volatility_5', 'lag_return_5']  # Simplified features
