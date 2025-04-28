@@ -1,9 +1,10 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.linear_model import LinearRegression
+from sklearn.svm import SVR
 from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
+from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 # Load the CSV file
@@ -46,8 +47,8 @@ data = data[abs(data['price_diff']) <= 3 * price_diff_std]
 # Drop rows with NaN values
 data = data.dropna()
 
-# Filter the data for training (2000-2008) and testing (2009-2010)
-train_data = data[(data['date'] >= '2000-01-01') & (data['date'] <= '2001-12-31')]
+# Filter the data for training (2000-2001) and testing (2024)
+train_data = data[(data['date'] >= '2023-01-01') & (data['date'] <= '2023-12-31')]
 test_data = data[(data['date'] >= '2024-01-01') & (data['date'] <= '2024-12-31')]
 
 # Define features (X) and target (y)
@@ -63,11 +64,23 @@ scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test[features])
 
-# Define Linear Regression model
-model = LinearRegression()
+# Define SVR model
+base_model = SVR(kernel='rbf')
 
-# Train the model
-model.fit(X_train_scaled, y_train)
+# Perform grid search to tune hyperparameters
+param_grid = {
+    'C': [0.1, 1, 10],
+    'epsilon': [0.01, 0.1, 0.5],
+    'gamma': ['scale', 0.01, 0.1]
+}
+grid_search = GridSearchCV(
+    base_model, param_grid, cv=5, scoring='neg_mean_squared_error', n_jobs=-1
+)
+grid_search.fit(X_train_scaled, y_train)
+
+# Best model
+model = grid_search.best_estimator_
+print("Best Hyperparameters:", grid_search.best_params_)
 
 # Predict price differences
 y_pred = model.predict(X_test_scaled)
@@ -88,7 +101,7 @@ print(f"Test R² Score (Price Diff): {r2:.4f}")
 mse_close = mean_squared_error(y_test_close, y_pred_close)
 print(f"Test Mean Squared Error (Close Prices): {mse_close:.6f}")
 
-# Baseline: Predict previous day's close
+# Baseline: Predict previous day's close (for metrics only)
 baseline_pred_close = test_data['lag_close_1']
 baseline_mse_close = mean_squared_error(y_test_close, baseline_pred_close)
 print(f"Baseline MSE (Close Prices, Previous Day): {baseline_mse_close:.6f}")
@@ -97,18 +110,14 @@ print(f"Baseline MSE (Close Prices, Previous Day): {baseline_mse_close:.6f}")
 directional_accuracy = np.mean(np.sign(y_test) == np.sign(y_pred)) * 100
 print(f"Directional Accuracy: {directional_accuracy:.2f}%")
 
-# Feature coefficients
-print("Feature Coefficients:")
-for name, coef in zip(features, model.coef_):
-    print(f"{name}: {coef:.4f}")
 
-# Plot 1: Actual vs. Predicted Close Prices with Baseline
+# Plot 1: Actual vs. Predicted Close Prices
 plt.figure(figsize=(12, 6))
 plt.plot(test_data['date'], y_test_close, label='Actual Close Prices', color='blue', alpha=0.6)
 plt.plot(test_data['date'], y_pred_close, label='Predicted Close Prices', color='red', alpha=0.6)
 plt.xlabel('Date')
 plt.ylabel('Close Price')
-plt.title('Linear Regression Actual vs Predicted Close Prices')
+plt.title('SVM Actual vs Predicted Close Prices')
 plt.legend()
 plt.grid()
 plt.savefig('price_plot.png')
@@ -121,7 +130,7 @@ plt.plot(test_data['date'], errors, label='Prediction Errors (Predicted - Actual
 plt.axhline(0, color='black', linestyle='--', alpha=0.3)
 plt.xlabel('Date')
 plt.ylabel('Error (Predicted - Actual Close Price)')
-plt.title('Prediction Errors for Close Prices (2009-2010)')
+plt.title('Prediction Errors for Close Prices (2024)')
 plt.legend()
 plt.grid()
 plt.savefig('error_plot.png')
@@ -133,7 +142,7 @@ plt.plot(test_data['date'], y_test, label='Actual Price Diff', color='blue', alp
 plt.plot(test_data['date'], y_pred, label='Predicted Price Diff', color='red', alpha=0.6)
 plt.xlabel('Date')
 plt.ylabel('Price Difference (Close - Lag Close)')
-plt.title('Actual vs Predicted Price Differences (2009-2010)')
+plt.title('Actual vs Predicted Price Differences (2024)')
 plt.legend()
 plt.grid()
 plt.savefig('price_diff_plot.png')
@@ -145,31 +154,25 @@ plt.figure(figsize=(12, 6))
 plt.plot(test_data['date'], correct_directions, label='Correct Direction (1=Correct, 0=Incorrect)', color='orange', alpha=0.6)
 plt.xlabel('Date')
 plt.ylabel('Correct Direction')
-plt.title('Directional Prediction Correctness (2009-2010)')
+plt.title('Directional Prediction Correctness (2024)')
 plt.legend()
 plt.grid()
 plt.savefig('directional_plot.png')
 plt.close()
 
-# Plot 5: Cumulative Excess Returns
+# Plot 5: Cumulative Returns from Model Predictions
 # Convert price differences to returns for cumulative calculation
-actual_returns = y_test / test_data['lag_close_1']
 pred_returns = y_pred / test_data['lag_close_1']
-cumulative_actual_returns = np.cumprod(1 + actual_returns) - 1
 cumulative_predicted_returns = np.cumprod(1 + pred_returns) - 1
-# Baseline: Assume zero price difference (close = lag_close_1)
-baseline_returns = np.zeros_like(y_test)
-cumulative_baseline_returns = np.cumprod(1 + baseline_returns) - 1
-excess_returns = cumulative_predicted_returns - cumulative_baseline_returns
 plt.figure(figsize=(12, 6))
-plt.plot(test_data['date'], excess_returns, label='Excess Returns (Model - Baseline)', color='teal', alpha=0.6)
+plt.plot(test_data['date'], cumulative_predicted_returns, label='Cumulative Returns (Model)', color='teal', alpha=0.6)
 plt.axhline(0, color='black', linestyle='--', alpha=0.3)
 plt.xlabel('Date')
-plt.ylabel('Cumulative Excess Returns')
-plt.title('Cumulative Excess Returns (Model vs Baseline, 2009-2010)')
+plt.ylabel('Cumulative Returns')
+plt.title('Cumulative Returns from Model Predictions (2024)')
 plt.legend()
 plt.grid()
-plt.savefig('excess_returns_plot.png')
+plt.savefig('cumulative_returns_plot.png')
 plt.close()
 
 # Classify predictions: Positive (1) if price_diff > 0, Negative (0) otherwise

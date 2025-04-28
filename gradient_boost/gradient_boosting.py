@@ -1,10 +1,9 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, r2_score
+from sklearn.ensemble import GradientBoostingRegressor
+from sklearn.metrics import mean_squared_error, r2_score, confusion_matrix, ConfusionMatrixDisplay
 from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
 
 # Load the CSV file
 data = pd.read_csv('../KO_1919-09-06_2025-03-15.csv')
@@ -16,12 +15,9 @@ data['date'] = pd.to_datetime(data['date'], utc=True)
 data['log_volume'] = np.log1p(data['volume'])
 data['lag_close_1'] = data['close'].shift(1)
 data['volatility_5'] = data['close'].rolling(window=5).std()
-
-# Target: Price difference (close_t - close_t-1)
 data['price_diff'] = data['close'] - data['lag_close_1']
 
 # Technical indicators
-# 14-day RSI
 def calculate_rsi(data, periods=14):
     delta = data['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=periods).mean()
@@ -63,8 +59,13 @@ scaler = StandardScaler()
 X_train_scaled = scaler.fit_transform(X_train)
 X_test_scaled = scaler.transform(X_test[features])
 
-# Define Linear Regression model
-model = LinearRegression()
+# Define Gradient Boosting Regressor
+model = GradientBoostingRegressor(
+    learning_rate=0.01,
+    max_depth=2,
+    n_estimators=100,
+    random_state=42
+)
 
 # Train the model
 model.fit(X_train_scaled, y_train)
@@ -97,18 +98,13 @@ print(f"Baseline MSE (Close Prices, Previous Day): {baseline_mse_close:.6f}")
 directional_accuracy = np.mean(np.sign(y_test) == np.sign(y_pred)) * 100
 print(f"Directional Accuracy: {directional_accuracy:.2f}%")
 
-# Feature coefficients
-print("Feature Coefficients:")
-for name, coef in zip(features, model.coef_):
-    print(f"{name}: {coef:.4f}")
-
-# Plot 1: Actual vs. Predicted Close Prices with Baseline
+# Plot 1: Actual vs. Predicted Close Prices
 plt.figure(figsize=(12, 6))
 plt.plot(test_data['date'], y_test_close, label='Actual Close Prices', color='blue', alpha=0.6)
 plt.plot(test_data['date'], y_pred_close, label='Predicted Close Prices', color='red', alpha=0.6)
 plt.xlabel('Date')
 plt.ylabel('Close Price')
-plt.title('Linear Regression Actual vs Predicted Close Prices')
+plt.title('Gradient Boosting Actual vs Predicted Close Prices')
 plt.legend()
 plt.grid()
 plt.savefig('price_plot.png')
@@ -127,59 +123,10 @@ plt.grid()
 plt.savefig('error_plot.png')
 plt.close()
 
-# Plot 3: Actual vs. Predicted Price Differences
-plt.figure(figsize=(12, 6))
-plt.plot(test_data['date'], y_test, label='Actual Price Diff', color='blue', alpha=0.6)
-plt.plot(test_data['date'], y_pred, label='Predicted Price Diff', color='red', alpha=0.6)
-plt.xlabel('Date')
-plt.ylabel('Price Difference (Close - Lag Close)')
-plt.title('Actual vs Predicted Price Differences (2009-2010)')
-plt.legend()
-plt.grid()
-plt.savefig('price_diff_plot.png')
-plt.close()
-
-# Plot 4: Directional Accuracy (Correctness Over Time)
-correct_directions = (np.sign(y_test) == np.sign(y_pred)).astype(int)
-plt.figure(figsize=(12, 6))
-plt.plot(test_data['date'], correct_directions, label='Correct Direction (1=Correct, 0=Incorrect)', color='orange', alpha=0.6)
-plt.xlabel('Date')
-plt.ylabel('Correct Direction')
-plt.title('Directional Prediction Correctness (2009-2010)')
-plt.legend()
-plt.grid()
-plt.savefig('directional_plot.png')
-plt.close()
-
-# Plot 5: Cumulative Excess Returns
-# Convert price differences to returns for cumulative calculation
-actual_returns = y_test / test_data['lag_close_1']
-pred_returns = y_pred / test_data['lag_close_1']
-cumulative_actual_returns = np.cumprod(1 + actual_returns) - 1
-cumulative_predicted_returns = np.cumprod(1 + pred_returns) - 1
-# Baseline: Assume zero price difference (close = lag_close_1)
-baseline_returns = np.zeros_like(y_test)
-cumulative_baseline_returns = np.cumprod(1 + baseline_returns) - 1
-excess_returns = cumulative_predicted_returns - cumulative_baseline_returns
-plt.figure(figsize=(12, 6))
-plt.plot(test_data['date'], excess_returns, label='Excess Returns (Model - Baseline)', color='teal', alpha=0.6)
-plt.axhline(0, color='black', linestyle='--', alpha=0.3)
-plt.xlabel('Date')
-plt.ylabel('Cumulative Excess Returns')
-plt.title('Cumulative Excess Returns (Model vs Baseline, 2009-2010)')
-plt.legend()
-plt.grid()
-plt.savefig('excess_returns_plot.png')
-plt.close()
-
-# Classify predictions: Positive (1) if price_diff > 0, Negative (0) otherwise
+# Plot 3: Confusion Matrix
 y_test_class = (y_test > 0).astype(int)
 y_pred_class = (y_pred > 0).astype(int)
-
-# Compute confusion matrix
 cm = confusion_matrix(y_test_class, y_pred_class)
-
-# Plot confusion matrix
 disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Negative', 'Positive'])
 plt.figure(figsize=(8, 6))
 disp.plot(cmap='Blues', values_format='d')

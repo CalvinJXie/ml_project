@@ -1,10 +1,11 @@
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
-from sklearn.linear_model import LinearRegression
-from sklearn.metrics import mean_squared_error, r2_score
-from sklearn.preprocessing import StandardScaler
-from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import mean_squared_error, r2_score, confusion_matrix, ConfusionMatrixDisplay
+from sklearn.preprocessing import MinMaxScaler
+import torch
+import torch.nn as nn
+from torch.utils.data import DataLoader, TensorDataset
 
 # Load the CSV file
 data = pd.read_csv('../KO_1919-09-06_2025-03-15.csv')
@@ -16,12 +17,9 @@ data['date'] = pd.to_datetime(data['date'], utc=True)
 data['log_volume'] = np.log1p(data['volume'])
 data['lag_close_1'] = data['close'].shift(1)
 data['volatility_5'] = data['close'].rolling(window=5).std()
-
-# Target: Price difference (close_t - close_t-1)
 data['price_diff'] = data['close'] - data['lag_close_1']
 
 # Technical indicators
-# 14-day RSI
 def calculate_rsi(data, periods=14):
     delta = data['close'].diff()
     gain = (delta.where(delta > 0, 0)).rolling(window=periods).mean()
@@ -54,29 +52,69 @@ test_data = data[(data['date'] >= '2024-01-01') & (data['date'] <= '2024-12-31')
 features = ['open', 'high', 'low', 'log_volume', 'lag_close_1', 'volatility_5', 'rsi_14', 'ma_deviation', 'day_of_week', 'month', 'year']
 X_train = train_data[features]
 y_train = train_data['price_diff']
-X_test = test_data[features + ['close']]  # Include 'close' for price calculation
+X_test = test_data[features]
 y_test = test_data['price_diff']
 y_test_close = test_data['close']
 
 # Scale the features
-scaler = StandardScaler()
+scaler = MinMaxScaler()
 X_train_scaled = scaler.fit_transform(X_train)
-X_test_scaled = scaler.transform(X_test[features])
+X_test_scaled = scaler.transform(X_test)
 
-# Define Linear Regression model
-model = LinearRegression()
+# Convert data to PyTorch tensors
+X_train_tensor = torch.tensor(X_train_scaled, dtype=torch.float32).unsqueeze(1)  # Add a time dimension
+y_train_tensor = torch.tensor(y_train.values, dtype=torch.float32)
+X_test_tensor = torch.tensor(X_test_scaled, dtype=torch.float32).unsqueeze(1)
+y_test_tensor = torch.tensor(y_test.values, dtype=torch.float32)
+
+# Define LSTM model
+class LSTMModel(nn.Module):
+    def __init__(self, input_size, hidden_size, output_size):
+        super(LSTMModel, self).__init__()
+        self.lstm = nn.LSTM(input_size, hidden_size, batch_first=True)
+        self.fc = nn.Linear(hidden_size, output_size)
+    
+    def forward(self, x):
+        _, (hidden, _) = self.lstm(x)
+        out = self.fc(hidden[-1])
+        return out
+
+# Model parameters
+input_size = X_train_tensor.shape[2]
+hidden_size = 50
+output_size = 1
+model = LSTMModel(input_size, hidden_size, output_size)
+
+# Loss and optimizer
+criterion = nn.MSELoss()
+optimizer = torch.optim.Adam(model.parameters(), lr=0.001)
 
 # Train the model
-model.fit(X_train_scaled, y_train)
+epochs = 50
+batch_size = 32
+train_dataset = TensorDataset(X_train_tensor, y_train_tensor)
+train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=True)
+
+for epoch in range(epochs):
+    model.train()
+    for X_batch, y_batch in train_loader:
+        optimizer.zero_grad()
+        outputs = model(X_batch)
+        loss = criterion(outputs.squeeze(), y_batch)
+        loss.backward()
+        optimizer.step()
+    print(f"Epoch {epoch+1}/{epochs}, Loss: {loss.item():.6f}")
 
 # Predict price differences
-y_pred = model.predict(X_test_scaled)
+model.eval()
+with torch.no_grad():
+    y_pred = model(X_test_tensor).squeeze().numpy()
 
 # Convert to predicted close prices
-y_pred_close = X_test['close'] + y_pred  # close = lag_close_1 + predicted_diff
+y_pred_close = test_data['lag_close_1'].values + y_pred  # close = lag_close_1 + predicted_diff
 
 # Calculate metrics for price differences
-train_pred = model.predict(X_train_scaled)
+train_pred = model(X_train_tensor).squeeze().detach().numpy()
 train_mse = mean_squared_error(y_train, train_pred)
 test_mse = mean_squared_error(y_test, y_pred)
 r2 = r2_score(y_test, y_pred)
@@ -97,18 +135,13 @@ print(f"Baseline MSE (Close Prices, Previous Day): {baseline_mse_close:.6f}")
 directional_accuracy = np.mean(np.sign(y_test) == np.sign(y_pred)) * 100
 print(f"Directional Accuracy: {directional_accuracy:.2f}%")
 
-# Feature coefficients
-print("Feature Coefficients:")
-for name, coef in zip(features, model.coef_):
-    print(f"{name}: {coef:.4f}")
-
-# Plot 1: Actual vs. Predicted Close Prices with Baseline
+# Plot 1: Actual vs. Predicted Close Prices
 plt.figure(figsize=(12, 6))
 plt.plot(test_data['date'], y_test_close, label='Actual Close Prices', color='blue', alpha=0.6)
 plt.plot(test_data['date'], y_pred_close, label='Predicted Close Prices', color='red', alpha=0.6)
 plt.xlabel('Date')
 plt.ylabel('Close Price')
-plt.title('Linear Regression Actual vs Predicted Close Prices')
+plt.title('PyTorch LSTM Actual vs Predicted Close Prices')
 plt.legend()
 plt.grid()
 plt.savefig('price_plot.png')
@@ -121,65 +154,16 @@ plt.plot(test_data['date'], errors, label='Prediction Errors (Predicted - Actual
 plt.axhline(0, color='black', linestyle='--', alpha=0.3)
 plt.xlabel('Date')
 plt.ylabel('Error (Predicted - Actual Close Price)')
-plt.title('Prediction Errors for Close Prices (2009-2010)')
+plt.title('Prediction Errors for Close Prices')
 plt.legend()
 plt.grid()
 plt.savefig('error_plot.png')
 plt.close()
 
-# Plot 3: Actual vs. Predicted Price Differences
-plt.figure(figsize=(12, 6))
-plt.plot(test_data['date'], y_test, label='Actual Price Diff', color='blue', alpha=0.6)
-plt.plot(test_data['date'], y_pred, label='Predicted Price Diff', color='red', alpha=0.6)
-plt.xlabel('Date')
-plt.ylabel('Price Difference (Close - Lag Close)')
-plt.title('Actual vs Predicted Price Differences (2009-2010)')
-plt.legend()
-plt.grid()
-plt.savefig('price_diff_plot.png')
-plt.close()
-
-# Plot 4: Directional Accuracy (Correctness Over Time)
-correct_directions = (np.sign(y_test) == np.sign(y_pred)).astype(int)
-plt.figure(figsize=(12, 6))
-plt.plot(test_data['date'], correct_directions, label='Correct Direction (1=Correct, 0=Incorrect)', color='orange', alpha=0.6)
-plt.xlabel('Date')
-plt.ylabel('Correct Direction')
-plt.title('Directional Prediction Correctness (2009-2010)')
-plt.legend()
-plt.grid()
-plt.savefig('directional_plot.png')
-plt.close()
-
-# Plot 5: Cumulative Excess Returns
-# Convert price differences to returns for cumulative calculation
-actual_returns = y_test / test_data['lag_close_1']
-pred_returns = y_pred / test_data['lag_close_1']
-cumulative_actual_returns = np.cumprod(1 + actual_returns) - 1
-cumulative_predicted_returns = np.cumprod(1 + pred_returns) - 1
-# Baseline: Assume zero price difference (close = lag_close_1)
-baseline_returns = np.zeros_like(y_test)
-cumulative_baseline_returns = np.cumprod(1 + baseline_returns) - 1
-excess_returns = cumulative_predicted_returns - cumulative_baseline_returns
-plt.figure(figsize=(12, 6))
-plt.plot(test_data['date'], excess_returns, label='Excess Returns (Model - Baseline)', color='teal', alpha=0.6)
-plt.axhline(0, color='black', linestyle='--', alpha=0.3)
-plt.xlabel('Date')
-plt.ylabel('Cumulative Excess Returns')
-plt.title('Cumulative Excess Returns (Model vs Baseline, 2009-2010)')
-plt.legend()
-plt.grid()
-plt.savefig('excess_returns_plot.png')
-plt.close()
-
-# Classify predictions: Positive (1) if price_diff > 0, Negative (0) otherwise
+# Plot 3: Confusion Matrix
 y_test_class = (y_test > 0).astype(int)
 y_pred_class = (y_pred > 0).astype(int)
-
-# Compute confusion matrix
 cm = confusion_matrix(y_test_class, y_pred_class)
-
-# Plot confusion matrix
 disp = ConfusionMatrixDisplay(confusion_matrix=cm, display_labels=['Negative', 'Positive'])
 plt.figure(figsize=(8, 6))
 disp.plot(cmap='Blues', values_format='d')
