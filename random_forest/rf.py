@@ -6,9 +6,11 @@ from sklearn.metrics import mean_squared_error, r2_score
 from sklearn.preprocessing import StandardScaler
 from sklearn.model_selection import GridSearchCV
 from sklearn.metrics import confusion_matrix, ConfusionMatrixDisplay
+from sklearn.metrics import roc_curve, auc
+
 
 # Load the CSV file
-data = pd.read_csv('../KO_1919-09-06_2025-03-15.csv')
+data = pd.read_csv('KO_1919-09-06_2025-03-15.csv')
 
 # Ensure the 'date' column is in datetime format with UTC
 data['date'] = pd.to_datetime(data['date'], utc=True)
@@ -192,4 +194,22 @@ plt.figure(figsize=(8, 6))
 disp.plot(cmap='Blues', values_format='d')
 plt.title('Confusion Matrix (Price Difference Classification)')
 plt.savefig('confusion_matrix_plot.png')
+plt.close()
+
+
+# ROC Curve for Price Direction Prediction
+fpr, tpr, thresholds = roc_curve(y_test_class, y_pred)  # Use raw predicted diffs as scores
+roc_auc = auc(fpr, tpr)
+
+plt.figure(figsize=(8, 6))
+plt.plot(fpr, tpr, color='darkorange', lw=2, label=f'ROC Curve (AUC = {roc_auc:.2f})')
+plt.plot([0, 1], [0, 1], color='navy', lw=2, linestyle='--', label='Random Guess')
+plt.xlim([0.0, 1.0])
+plt.ylim([0.0, 1.05])
+plt.xlabel('False Positive Rate')
+plt.ylabel('True Positive Rate')
+plt.title('ROC Curve for Price Direction Prediction (Random Forest)')
+plt.legend(loc="lower right")
+plt.grid()
+plt.savefig('roc_curve_plot.png')
 plt.close()
