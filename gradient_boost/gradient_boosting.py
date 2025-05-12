@@ -45,7 +45,7 @@ data = data[abs(data['price_diff']) <= 3 * price_diff_std]
 data = data.dropna()
 
 # Filter the data for training (2000-2008) and testing (2009-2010)
-train_data = data[(data['date'] >= '2000-01-01') & (data['date'] <= '2001-12-31')]
+train_data = data[(data['date'] >= '2023-01-01') & (data['date'] <= '2023-12-31')]
 test_data = data[(data['date'] >= '2024-01-01') & (data['date'] <= '2024-12-31')]
 
 # Define features (X) and target (y)
